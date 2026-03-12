@@ -24,6 +24,12 @@
         .ai-gradient { background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); }
         .scale-in { animation: scaleIn 0.2s ease-out; }
         @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        
+        /* Pulse animations for status lights */
+        .pulse-red { animation: pulseRed 1.5s infinite; }
+        .pulse-green { animation: pulseGreen 2s infinite; }
+        @keyframes pulseRed { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        @keyframes pulseGreen { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
     </style>
 </head>
 <body>
@@ -50,7 +56,6 @@
             const [searchQuery, setSearchQuery] = useState("");
             const [customer, setCustomer] = useState({ name: '', phone: '', address: '', date: new Date().toISOString().split('T')[0] });
 
-            // Password Modal States
             const [passModal, setPassModal] = useState({ show: false, action: null, title: "" });
             const [passInput, setPassInput] = useState("");
             const [showPassText, setShowPassText] = useState(false);
@@ -71,7 +76,6 @@
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
             };
 
-            // Secure Password Handler
             const requestAuth = (title, successAction) => {
                 setPassModal({ show: true, action: successAction, title: title });
             };
@@ -91,7 +95,6 @@
                 setShowPassText(false);
             };
 
-            // Actions Wrapped in Auth
             const handleResetReports = () => {
                 requestAuth("Reset All Reports & Bill No", () => {
                     if(confirm("Are you sure? This will reset all stats.")){
@@ -132,7 +135,6 @@
                 });
             };
 
-            // Original Core Functions
             const addToCart = (product) => {
                 const qtyInput = prompt(`Enter Quantity for ${product.name}:`, "1");
                 const qty = parseInt(qtyInput);
@@ -195,7 +197,6 @@
 
             return (
                 <div className="min-h-screen flex relative">
-                    {/* Password Modal */}
                     {passModal.show && (
                         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
                             <div className="bg-white rounded-[30px] p-8 w-full max-w-md shadow-2xl scale-in border border-slate-100">
@@ -288,7 +289,8 @@
                                                     <p className="text-[10px] text-slate-400 font-bold mb-3">{item.size}</p>
                                                     <div className="flex justify-between items-center pt-2 border-t">
                                                         <span className="text-indigo-600 font-black text-lg">₹{item.price}</span>
-                                                        <span className={`text-[9px] px-2 py-1 rounded-lg font-bold ${item.qty < 10 ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-100 text-slate-500'}`}>
+                                                        {/* 3 or Below: Red Light, Above 3: Green Light */}
+                                                        <span className={`text-[9px] px-2 py-1 rounded-lg font-bold transition-all ${item.qty <= 3 ? 'bg-red-500 text-white pulse-red' : 'bg-emerald-500 text-white pulse-green'}`}>
                                                             {item.qty} left
                                                         </span>
                                                     </div>
@@ -351,7 +353,12 @@
                                             {inventory.map(item => (
                                                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                                                     <td className="p-5"><b>{item.name}</b><br/><span className="text-[10px] text-slate-400">{item.size}</span></td>
-                                                    <td className="p-5"><span className={`px-3 py-1 rounded-full font-black text-xs ${item.qty < 10 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-emerald-100 text-emerald-600'}`}>{item.qty} Stock</span></td>
+                                                    <td className="p-5">
+                                                        {/* Status Lights in Inventory Table */}
+                                                        <span className={`px-3 py-1 rounded-full font-black text-xs transition-all ${item.qty <= 3 ? 'bg-red-500 text-white pulse-red' : 'bg-emerald-500 text-white pulse-green'}`}>
+                                                            {item.qty} Stock
+                                                        </span>
+                                                    </td>
                                                     <td className="p-5 font-bold">₹{item.price}</td>
                                                     <td className="p-5 text-center">
                                                         <button onClick={() => refillStock(item.id)} className="w-8 h-8 rounded bg-emerald-50 text-emerald-600 mr-2"><i className="fas fa-plus-circle"></i></button>
