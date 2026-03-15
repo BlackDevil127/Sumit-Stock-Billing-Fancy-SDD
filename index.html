@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Fancy Looks Salon | Local ERP v7.0</title>
+    <title>Fancy Looks Salon | POS v8.7</title>
     
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -17,26 +17,33 @@
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
         :root { --primary: #6366f1; --secondary: #a855f7; --sidebar-bg: #0f172a; }
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; color: #1e293b; user-select: none; }
+        
         .sidebar { background: var(--sidebar-bg); width: 280px; position: fixed; height: 100vh; transition: all 0.4s; z-index: 1000; }
         .main-content { margin-left: 280px; padding: 25px; transition: all 0.4s; }
         @media (max-width: 1024px) { .sidebar { transform: translateX(-100%); } .sidebar.open { transform: translateX(0); } .main-content { margin-left: 0; } }
-        .glass-card { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(226, 232, 240, 0.8); border-radius: 20px; }
+        
+        .glass-card { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(226, 232, 240, 0.8); border-radius: 20px; transition: all 0.3s ease; }
         .ai-gradient { background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); }
+        
+        /* Pulse Logic Animations */
+        .pulse-red { animation: pulseRed 1.5s infinite; border: 2.5px solid #ef4444 !important; }
+        .pulse-green { animation: pulseGreen 2s infinite; border: 2.5px solid #22c55e !important; }
+        
+        @keyframes pulseRed { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); } 70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        @keyframes pulseGreen { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.3); } 70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
+        
         .scale-in { animation: scaleIn 0.2s ease-out; }
         @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         
-        /* Pulse animations for status lights */
-        .pulse-red { animation: pulseRed 1.5s infinite; }
-        .pulse-green { animation: pulseGreen 2s infinite; }
-        @keyframes pulseRed { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
-        @keyframes pulseGreen { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
+        table { border-collapse: separate; border-spacing: 0 8px; }
+        th, td { border: none !important; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useMemo } = React;
 
         const App = () => {
             const STORAGE_KEY = "fancy_looks_erp_data";
@@ -55,10 +62,8 @@
             const [isSidebarOpen, setSidebarOpen] = useState(false);
             const [searchQuery, setSearchQuery] = useState("");
             const [customer, setCustomer] = useState({ name: '', phone: '', address: '', date: new Date().toISOString().split('T')[0] });
-
             const [passModal, setPassModal] = useState({ show: false, action: null, title: "" });
             const [passInput, setPassInput] = useState("");
-            const [showPassText, setShowPassText] = useState(false);
 
             useEffect(() => {
                 const savedData = localStorage.getItem(STORAGE_KEY);
@@ -72,8 +77,7 @@
             }, []);
 
             const syncToStorage = (newInv, newSales, newBillNo, newStats) => {
-                const dataToSave = { inventory: newInv, sales: newSales, billNo: newBillNo, permStats: newStats };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({ inventory: newInv, sales: newSales, billNo: newBillNo, permStats: newStats }));
             };
 
             const requestAuth = (title, successAction) => {
@@ -83,28 +87,41 @@
             const confirmAuth = () => {
                 if (passInput === ADMIN_PASSWORD) {
                     passModal.action();
-                    closeAuth();
-                } else {
-                    alert("Wrong Password! Access Denied.");
-                }
+                    setPassModal({ show: false, action: null, title: "" });
+                    setPassInput("");
+                } else { alert("Incorrect Password!"); }
             };
 
-            const closeAuth = () => {
-                setPassModal({ show: false, action: null, title: "" });
-                setPassInput("");
-                setShowPassText(false);
+            const stockSummary = useMemo(() => {
+                const totalStockCount = inventory.reduce((acc, item) => acc + item.qty, 0);
+                const grouped = inventory.reduce((acc, item) => {
+                    const name = item.name.trim();
+                    if (!acc[name]) acc[name] = { total: 0, items: [] };
+                    acc[name].total += item.qty;
+                    acc[name].items.push({ size: item.size, qty: item.qty });
+                    return acc;
+                }, {});
+                return { totalStockCount, grouped };
+            }, [inventory]);
+
+            const refillStock = (id) => {
+                const amount = prompt("How many units to add?");
+                const qtyToAdd = parseInt(amount);
+                if (isNaN(qtyToAdd) || qtyToAdd <= 0) return alert("Invalid amount!");
+                const updatedInv = inventory.map(item => item.id === id ? { ...item, qty: item.qty + qtyToAdd } : item);
+                setInventory(updatedInv);
+                syncToStorage(updatedInv, sales, billNo, permStats);
             };
 
-            const handleResetReports = () => {
-                requestAuth("Reset All Reports & Bill No", () => {
-                    if(confirm("Are you sure? This will reset all stats.")){
-                        const resetStats = { dailyRevenue: 0, monthlyRevenue: 0, dailyProfit: 0, monthlyProfit: 0, lastDate: new Date().toLocaleDateString() };
-                        setPermStats(resetStats);
-                        setBillNo(1);
-                        setSales([]);
-                        syncToStorage(inventory, [], 1, resetStats);
-                    }
-                });
+            const deductStock = (id) => {
+                const amount = prompt("How many units to remove?");
+                const qtyToRemove = parseInt(amount);
+                if (isNaN(qtyToRemove) || qtyToRemove <= 0) return alert("Invalid amount!");
+                const itemToUpdate = inventory.find(i => i.id === id);
+                if (qtyToRemove > itemToUpdate.qty) return alert("Error: Insufficient stock!");
+                const updatedInv = inventory.map(item => item.id === id ? { ...item, qty: item.qty - qtyToRemove } : item);
+                setInventory(updatedInv);
+                syncToStorage(updatedInv, sales, billNo, permStats);
             };
 
             const handleResetInventory = () => {
@@ -116,29 +133,11 @@
                 });
             };
 
-            const handleInventoryAccess = () => {
-                if (isInvUnlocked) { setView('inventory'); } 
-                else { 
-                    requestAuth("Unlock Inventory", () => {
-                        setIsInvUnlocked(true);
-                        setView('inventory');
-                    });
-                }
-                setSidebarOpen(false);
-            };
-
-            const handleDeleteBill = (bNo) => {
-                requestAuth(`Delete Bill #${bNo}`, () => {
-                    const updatedSales = sales.filter(sl => sl.billNo !== bNo);
-                    setSales(updatedSales);
-                    syncToStorage(inventory, updatedSales, billNo, permStats);
-                });
-            };
-
             const addToCart = (product) => {
-                const qtyInput = prompt(`Enter Quantity for ${product.name}:`, "1");
+                const qtyInput = prompt(`Enter Qty for ${product.name}:`, "1");
                 const qty = parseInt(qtyInput);
-                if (!qty || qty <= 0 || qty > product.qty) return alert("Invalid Quantity!");
+                if (!qty || qty <= 0 || qty > product.qty) return alert("Invalid or Insufficient Stock!");
+                
                 const existingItem = cart.find(c => c.id === product.id);
                 if(existingItem) {
                    setCart(cart.map(c => c.id === product.id ? {...c, sellQty: c.sellQty + qty, subtotal: (c.sellQty + qty) * c.price} : c));
@@ -147,24 +146,17 @@
                 }
             };
 
-            const refillStock = (id) => {
-                const amount = prompt("How many units to add?");
-                const qtyToAdd = parseInt(amount);
-                if (isNaN(qtyToAdd) || qtyToAdd <= 0) return alert("Invalid!");
-                const updatedInv = inventory.map(item => item.id === id ? { ...item, qty: item.qty + qtyToAdd } : item);
-                setInventory(updatedInv);
-                syncToStorage(updatedInv, sales, billNo, permStats);
-            };
-
             const finalizeBill = (method) => {
-                if (!customer.name || cart.length === 0) return alert("Enter Customer Info!");
+                if (!customer.name || cart.length === 0) return alert("Fill Cart and Customer Info!");
                 const total = cart.reduce((s, i) => s + i.subtotal, 0);
                 const profit = cart.reduce((p, i) => p + ((i.price - (i.purchasePrice || 0)) * i.sellQty), 0);
+                
                 const newSale = { billNo, customer: {...customer}, total, method, date: customer.date, items: [...cart] };
                 const updatedInv = inventory.map(invItem => {
                     const sold = cart.find(c => c.id === invItem.id);
                     return sold ? { ...invItem, qty: invItem.qty - sold.sellQty } : invItem;
                 });
+                
                 const updatedSales = [newSale, ...sales];
                 const today = new Date().toLocaleDateString();
                 const updatedStats = {
@@ -175,60 +167,26 @@
                     monthlyProfit: permStats.monthlyProfit + profit,
                     lastDate: today
                 };
+
                 setInventory(updatedInv); setSales(updatedSales); setBillNo(billNo + 1); setPermStats(updatedStats);
                 syncToStorage(updatedInv, updatedSales, billNo + 1, updatedStats);
-                setCart([]); setCustomer({ ...customer, name: '', phone: '' });
+                setCart([]); setCustomer({ ...customer, name: '', phone: '', address: '', date: new Date().toISOString().split('T')[0] });
                 alert("Sale Completed!");
-            };
-
-            const exportData = () => {
-                let csv = "Bill No,Date,Customer,Total,Items\n";
-                sales.forEach(s => {
-                    const itemNames = s.items.map(i => `${i.name} (${i.size})`).join(' | ');
-                    csv += `${s.billNo},${s.date},${s.customer.name},${s.total},${itemNames}\n`;
-                });
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url; a.download = `Sales_Report.csv`; a.click();
             };
 
             const filteredInventory = inventory.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
             return (
-                <div className="min-h-screen flex relative">
+                <div className="min-h-screen flex">
+                    {/* Password Modal */}
                     {passModal.show && (
                         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-                            <div className="bg-white rounded-[30px] p-8 w-full max-w-md shadow-2xl scale-in border border-slate-100">
-                                <div className="text-center mb-6">
-                                    <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                                        <i className="fas fa-lock text-2xl"></i>
-                                    </div>
-                                    <h3 className="text-xl font-extrabold text-slate-800">{passModal.title}</h3>
-                                    <p className="text-slate-400 text-sm mt-1">Please enter your security pin</p>
-                                </div>
-                                
-                                <div className="relative mb-8">
-                                    <input 
-                                        type={showPassText ? "text" : "password"}
-                                        className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-500 transition-all font-black text-center text-xl tracking-widest"
-                                        placeholder="••••••••"
-                                        value={passInput}
-                                        onChange={(e) => setPassInput(e.target.value)}
-                                        onKeyDown={(e) => e.key === 'Enter' && confirmAuth()}
-                                        autoFocus
-                                    />
-                                    <button 
-                                        onClick={() => setShowPassText(!showPassText)}
-                                        className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 transition-colors"
-                                    >
-                                        <i className={`fas ${showPassText ? 'fa-eye-slash' : 'fa-eye'} text-lg`}></i>
-                                    </button>
-                                </div>
-
+                            <div className="bg-white rounded-[30px] p-8 w-full max-w-md shadow-2xl scale-in text-center border">
+                                <h3 className="text-xl font-extrabold mb-4">{passModal.title}</h3>
+                                <input type="password" title="Pass" className="w-full p-4 bg-slate-50 border rounded-2xl mb-4 text-center font-bold" value={passInput} onChange={(e) => setPassInput(e.target.value)} />
                                 <div className="flex gap-4">
-                                    <button onClick={closeAuth} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all text-sm uppercase tracking-wider">Cancel</button>
-                                    <button onClick={confirmAuth} className="flex-1 py-4 ai-gradient text-white rounded-2xl font-bold shadow-lg shadow-indigo-200 hover:scale-[1.02] active:scale-95 transition-all text-sm uppercase tracking-wider">Verify</button>
+                                    <button onClick={() => setPassModal({show:false})} className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-slate-500">Cancel</button>
+                                    <button onClick={confirmAuth} className="flex-1 py-3 ai-gradient text-white rounded-xl font-bold">Verify</button>
                                 </div>
                             </div>
                         </div>
@@ -236,133 +194,146 @@
 
                     <aside className={`sidebar text-slate-300 p-6 shadow-2xl ${isSidebarOpen ? 'open' : ''}`}>
                         <div className="mb-10 flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-2xl ai-gradient flex items-center justify-center text-white text-xl shadow-lg"><i className="fas fa-scissors"></i></div>
-                            <div><h1 className="text-xl font-extrabold text-white">Fancy Looks</h1><p className="text-[10px] text-indigo-400 font-bold uppercase">Cloud ERP</p></div>
+                            <div className="w-12 h-12 rounded-2xl ai-gradient flex items-center justify-center text-white text-xl"><i className="fas fa-scissors"></i></div>
+                            <h1 className="text-xl font-extrabold text-white">Fancy Looks</h1>
                         </div>
                         <nav className="space-y-3">
                             <NavItem active={view==='billing'} icon="fa-receipt" label="POS Billing" onClick={()=>{setView('billing'); setSidebarOpen(false);}} />
-                            <NavItem active={view==='inventory'} icon="fa-boxes-stacked" label="Stock Manager" onClick={handleInventoryAccess} />
+                            <NavItem active={view==='inventory'} icon="fa-boxes-stacked" label="Stock Manager" onClick={() => { requestAuth("Unlock Inventory", () => { setIsInvUnlocked(true); setView('inventory'); }); setSidebarOpen(false); }} />
                             <NavItem active={view==='all-bills'} icon="fa-file-invoice" label="Recent Bills" onClick={()=>{setView('all-bills'); setSidebarOpen(false);}} />
                             <NavItem active={view==='reports'} icon="fa-chart-pie" label="Analytics" onClick={()=>{setView('reports'); setSidebarOpen(false);}} />
                         </nav>
-                        <div className="absolute bottom-10 left-6 right-6">
-                            {isInvUnlocked && (
-                                <button onClick={() => {setIsInvUnlocked(false); setView('billing');}} className="w-full flex items-center gap-3 p-3 rounded-xl bg-red-500/10 text-red-500 font-bold">
-                                    <i className="fas fa-lock"></i> <span>Lock Inventory</span>
-                                </button>
-                            )}
-                        </div>
                     </aside>
 
                     <main className="main-content w-full">
                         <header className="flex justify-between items-center mb-8">
-                            <div className="flex items-center gap-4">
-                                <button onClick={() => setSidebarOpen(true)} className="lg:hidden w-10 h-10 rounded-lg bg-white shadow flex items-center justify-center"><i className="fas fa-bars"></i></button>
-                                <h2 className="text-2xl font-extrabold text-slate-800 capitalize">{view.replace('-', ' ')}</h2>
+                            <button onClick={() => setSidebarOpen(true)} className="lg:hidden w-10 h-10 rounded-lg bg-white shadow flex items-center justify-center text-slate-600"><i className="fas fa-bars"></i></button>
+                            <h2 className="text-2xl font-extrabold text-slate-800 capitalize">{view.replace('-', ' ')}</h2>
+                            <div className="relative w-64 hidden md:block">
+                                <i className="fas fa-search absolute left-4 top-4 text-slate-400"></i>
+                                <input placeholder="Search product..." className="w-full pl-12 pr-4 py-3 bg-white border rounded-2xl text-sm" onChange={e => setSearchQuery(e.target.value)} />
                             </div>
                         </header>
 
                         {view === 'billing' && (
                             <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
                                 <div className="xl:col-span-8 space-y-6">
-                                    <div className="glass-card p-6">
-                                        <div className="flex justify-between items-center mb-6">
-                                            <h3 className="font-bold flex items-center gap-2 text-slate-700"><i className="fas fa-user-circle text-indigo-500"></i> Customer Info</h3>
-                                            <span className="bg-indigo-600 text-white px-4 py-1.5 rounded-full text-xs font-bold">Bill #{billNo}</span>
-                                        </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                                            <InputField placeholder="Name" value={customer.name} onChange={v=>setCustomer({...customer, name:v})} />
-                                            <InputField placeholder="Phone" value={customer.phone} onChange={v=>setCustomer({...customer, phone:v})} />
-                                            <InputField placeholder="Address" value={customer.address} onChange={v=>setCustomer({...customer, address:v})} />
-                                            <InputField type="date" value={customer.date} onChange={v=>setCustomer({...customer, date:v})} />
-                                        </div>
+                                    <div className="glass-card p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <InputField placeholder="Name" value={customer.name} onChange={v=>setCustomer({...customer, name:v})} />
+                                        <InputField placeholder="Phone" value={customer.phone} onChange={v=>setCustomer({...customer, phone:v})} />
+                                        <InputField placeholder="Address" value={customer.address} onChange={v=>setCustomer({...customer, address:v})} />
+                                        <InputField type="date" value={customer.date} onChange={v=>setCustomer({...customer, date:v})} />
                                     </div>
-                                    <div className="space-y-4">
-                                        <div className="flex items-center gap-4 bg-white p-2 rounded-2xl border shadow-sm">
-                                            <i className="fas fa-search ml-4 text-slate-400"></i>
-                                            <input className="w-full p-2 outline-none font-medium text-sm" placeholder="Search products..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-                                        </div>
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-4 overflow-y-auto max-h-[55vh] p-1">
-                                            {filteredInventory.map(item => (
-                                                <div key={item.id} onClick={()=>addToCart(item)} className="glass-card p-4 cursor-pointer hover:border-indigo-400 transition-all active:scale-95 group">
-                                                    <p className="font-bold text-sm text-slate-800 line-clamp-1">{item.name}</p>
-                                                    <p className="text-[10px] text-slate-400 font-bold mb-3">{item.size}</p>
-                                                    <div className="flex justify-between items-center pt-2 border-t">
-                                                        <span className="text-indigo-600 font-black text-lg">₹{item.price}</span>
-                                                        {/* 1 or Below: Red Light, Above 1: Green Light */}
-                                                        <span className={`text-[9px] px-2 py-1 rounded-lg font-bold transition-all ${item.qty <= 1 ? 'bg-red-500 text-white pulse-red' : 'bg-emerald-500 text-white pulse-green'}`}>
-                                                            {item.qty} left
-                                                        </span>
-                                                    </div>
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 max-h-[55vh] overflow-y-auto pr-2">
+                                        {filteredInventory.map(item => (
+                                            <div 
+                                                key={item.id} 
+                                                onClick={() => addToCart(item)}
+                                                className={`glass-card p-4 cursor-pointer relative ${item.qty <= 1 ? 'pulse-red' : 'pulse-green'}`}
+                                            >
+                                                <p className="font-bold text-sm truncate">{item.name}</p>
+                                                <p className="text-[10px] text-slate-500 mb-2 uppercase font-semibold">{item.size}</p>
+                                                <div className="flex justify-between items-center pt-2 border-t font-black">
+                                                    <span className="text-indigo-600">₹{item.price}</span>
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded text-white ${item.qty <= 1 ? 'bg-red-600' : 'bg-emerald-600'}`}>
+                                                        {item.qty} left
+                                                    </span>
                                                 </div>
-                                            ))}
-                                        </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
+
                                 <div className="xl:col-span-4">
-                                    <div className="glass-card p-6 sticky top-8 border-t-8 border-indigo-600">
-                                        <h3 className="font-extrabold mb-6 text-center"><i className="fas fa-shopping-basket text-indigo-600"></i> Checkout</h3>
-                                        <div className="min-h-[200px] divide-y space-y-2 mb-8 overflow-y-auto max-h-[35vh]">
+                                    <div className="glass-card p-6 sticky top-8">
+                                        <h3 className="font-extrabold mb-4 border-b pb-2">Cart List</h3>
+                                        <div className="divide-y max-h-[30vh] overflow-y-auto mb-4">
                                             {cart.map((c, i) => (
-                                                <div key={i} className="py-3 flex justify-between items-center">
-                                                    <div><span className="font-bold text-sm text-slate-700">{c.name}</span><br/><span className="text-[10px] text-slate-400">₹{c.price} x {c.sellQty}</span></div>
-                                                    <div className="flex items-center gap-3"><span className="font-black text-slate-800 text-sm">₹{c.subtotal}</span><button onClick={() => setCart(cart.filter((_,idx) => idx !== i))} className="text-red-400"><i className="fas fa-times-circle"></i></button></div>
+                                                <div key={i} className="py-2 flex justify-between text-xs items-center">
+                                                    <span className="font-medium">{c.name} ({c.size}) x{c.sellQty}</span>
+                                                    <span className="font-black text-indigo-600">₹{c.subtotal}</span>
                                                 </div>
                                             ))}
                                         </div>
-                                        <div className="pt-6 border-t-2 border-dashed flex justify-between items-end mb-8">
-                                            <span className="text-slate-500 font-bold text-sm">Payable</span>
-                                            <span className="text-3xl font-black text-indigo-600">₹{cart.reduce((s,i)=>s+i.subtotal, 0)}</span>
+                                        <div className="pt-4 border-t flex justify-between mb-6">
+                                            <span className="font-bold text-slate-400">Total Amount</span>
+                                            <span className="text-xl font-black text-indigo-600">₹{cart.reduce((s,i)=>s+i.subtotal, 0)}</span>
                                         </div>
-                                        <button onClick={()=>finalizeBill('Cash')} className="w-full py-4 ai-gradient text-white rounded-2xl font-extrabold shadow-lg">COMPLETE SALE</button>
+                                        <button onClick={()=>finalizeBill('Cash')} className="w-full py-4 ai-gradient text-white rounded-2xl font-black shadow-lg shadow-indigo-100 active:scale-95 transition-all">FINALIZE BILL</button>
                                     </div>
                                 </div>
                             </div>
                         )}
 
                         {view === 'inventory' && isInvUnlocked && (
-                            <div className="space-y-8">
-                                <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border-l-4 border-red-500">
-                                    <div><h4 className="font-bold text-slate-800">Inventory Controls</h4><p className="text-xs text-slate-400">Lock reset option enabled</p></div>
-                                    <button onClick={handleResetInventory} className="px-4 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold hover:bg-red-600 hover:text-white transition-all"><i className="fas fa-trash-alt mr-2"></i> RESET INVENTORY</button>
+                            <div className="space-y-6">
+                                {/* Updated Stock Summary with Pulse Animation */}
+                                <div className="glass-card p-6 border-l-8 border-indigo-600">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="font-black">Stock Summary</h3>
+                                        <span className="bg-indigo-600 text-white px-3 py-1 rounded-full text-xs font-bold">Total Units: {stockSummary.totalStockCount}</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {Object.entries(stockSummary.grouped).map(([name, data]) => (
+                                            <div 
+                                                key={name} 
+                                                className={`p-4 rounded-2xl transition-all border ${data.total <= 1 ? 'pulse-red bg-red-50' : 'pulse-green bg-emerald-50'}`}
+                                            >
+                                                <div className="flex justify-between border-b border-slate-200 pb-2 mb-2 font-black text-xs uppercase">
+                                                    <span className="text-indigo-600">{name}</span>
+                                                    <span className={data.total <= 1 ? 'text-red-600' : 'text-emerald-600'}>Total: {data.total}</span>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {data.items.map((it, idx) => (
+                                                        <div key={idx} className="flex justify-between text-[10px] font-bold text-slate-500">
+                                                            <span>Size: {it.size}</span>
+                                                            <span className={it.qty <= 1 ? 'text-red-500' : 'text-emerald-500'}>{it.qty} Qty</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
-                                <div className="max-w-4xl glass-card p-8 mx-auto border-b-8 border-indigo-600">
-                                    <h3 className="font-black text-xl mb-6">Add New Stock</h3>
+
+                                <div className="flex justify-between">
+                                    <button onClick={handleResetInventory} className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-red-500 hover:text-white transition-all">RESET INVENTORY</button>
+                                </div>
+
+                                <div className="glass-card p-6">
+                                    <h3 className="font-black mb-4 text-sm">Add New Product</h3>
                                     <form onSubmit={(e)=>{
                                         e.preventDefault();
                                         const newItem = { id: Date.now(), name: e.target.pname.value, size: e.target.psize.value, qty: parseInt(e.target.pqty.value), purchasePrice: parseFloat(e.target.buyprice.value), price: parseFloat(e.target.sellprice.value) };
                                         const updatedInv = [...inventory, newItem]; setInventory(updatedInv);
                                         syncToStorage(updatedInv, sales, billNo, permStats); e.target.reset();
-                                    }} className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                        <input name="pname" required className="w-full p-4 border rounded-2xl" placeholder="Name" />
-                                        <input name="psize" required className="w-full p-4 border rounded-2xl" placeholder="Size" />
-                                        <input name="pqty" required type="number" className="w-full p-4 border rounded-2xl" placeholder="Qty" />
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <input name="buyprice" required type="number" className="w-full p-4 border rounded-2xl bg-red-50" placeholder="Buy ₹" />
-                                            <input name="sellprice" required type="number" className="w-full p-4 border rounded-2xl bg-emerald-50" placeholder="Sell ₹" />
-                                        </div>
-                                        <button className="sm:col-span-2 py-5 bg-slate-900 text-white rounded-2xl font-black">ADD TO STOCK</button>
+                                    }} className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                        <input name="pname" required placeholder="Name" className="p-3 border rounded-xl text-xs" />
+                                        <input name="psize" required placeholder="Size" className="p-3 border rounded-xl text-xs" />
+                                        <input name="pqty" required type="number" placeholder="Qty" className="p-3 border rounded-xl text-xs" />
+                                        <input name="buyprice" required type="number" placeholder="Buy ₹" className="p-3 border rounded-xl text-xs" />
+                                        <input name="sellprice" required type="number" placeholder="Sell ₹" className="p-3 border rounded-xl text-xs" />
+                                        <button className="col-span-full py-3 bg-slate-900 text-white rounded-xl font-bold">ADD STOCK</button>
                                     </form>
                                 </div>
-                                <div className="glass-card overflow-hidden">
-                                    <table className="w-full text-left">
-                                        <thead className="bg-slate-800 text-white text-[10px] uppercase font-bold">
-                                            <tr><th className="p-5">Product</th><th className="p-5">Current Stock</th><th className="p-5">Price</th><th className="p-5 text-center">Action</th></tr>
+
+                                <div className="glass-card p-4 overflow-hidden">
+                                    <table className="w-full text-left text-xs">
+                                        <thead className="bg-slate-800 text-white">
+                                            <tr><th className="p-4 rounded-l-xl">Product</th><th className="p-4">Stock</th><th className="p-4 rounded-r-xl">Manage</th></tr>
                                         </thead>
-                                        <tbody className="divide-y text-sm bg-white">
+                                        <tbody>
                                             {inventory.map(item => (
-                                                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                                    <td className="p-5"><b>{item.name}</b><br/><span className="text-[10px] text-slate-400">{item.size}</span></td>
-                                                    <td className="p-5">
-                                                        {/* Status Lights in Inventory Table */}
-                                                        <span className={`px-3 py-1 rounded-full font-black text-xs transition-all ${item.qty <= 1 ? 'bg-red-500 text-white pulse-red' : 'bg-emerald-500 text-white pulse-green'}`}>
-                                                            {item.qty} Stock
-                                                        </span>
-                                                    </td>
-                                                    <td className="p-5 font-bold">₹{item.price}</td>
-                                                    <td className="p-5 text-center">
-                                                        <button onClick={() => refillStock(item.id)} className="w-8 h-8 rounded bg-emerald-50 text-emerald-600 mr-2"><i className="fas fa-plus-circle"></i></button>
-                                                        <button onClick={()=>{if(confirm('Delete?')){ const updatedInv = inventory.filter(i=>i.id!==item.id); setInventory(updatedInv); syncToStorage(updatedInv, sales, billNo, permStats); }}} className="w-8 h-8 rounded bg-red-50 text-red-500"><i className="fas fa-trash"></i></button>
+                                                <tr key={item.id} className={`bg-white rounded-xl transition-all ${item.qty <= 1 ? 'pulse-red bg-red-50' : 'pulse-green bg-emerald-50'}`}>
+                                                    <td className="p-4 font-bold rounded-l-xl">{item.name}<br/><span className="text-[10px] font-normal text-slate-500">{item.size}</span></td>
+                                                    <td className="p-4 font-black">₹{item.price} <span className={`ml-2 px-2 py-1 rounded text-white ${item.qty <= 1 ? 'bg-red-600' : 'bg-emerald-600'}`}>{item.qty} left</span></td>
+                                                    <td className="p-4 rounded-r-xl">
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => refillStock(item.id)} className="w-8 h-8 rounded bg-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"><i className="fas fa-plus"></i></button>
+                                                            <button onClick={() => deductStock(item.id)} className="w-8 h-8 rounded bg-orange-100 text-orange-600 hover:bg-orange-600 hover:text-white transition-all"><i className="fas fa-minus"></i></button>
+                                                            <button onClick={()=>{if(confirm('Delete?')){ const updated = inventory.filter(i=>i.id!==item.id); setInventory(updated); syncToStorage(updated, sales, billNo, permStats); }}} className="w-8 h-8 rounded bg-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"><i className="fas fa-trash"></i></button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -373,53 +344,59 @@
                         )}
 
                         {view === 'all-bills' && (
-                            <div className="glass-card overflow-hidden">
-                                <table className="w-full text-left">
-                                    <thead className="bg-slate-800 text-white text-[10px] uppercase font-bold">
+                            <div className="glass-card overflow-hidden overflow-x-auto">
+                                <table className="w-full text-left text-xs min-w-[900px]">
+                                    <thead className="bg-slate-800 text-white font-bold uppercase">
                                         <tr>
-                                            <th className="p-5">Bill No</th>
-                                            <th className="p-5">Customer</th>
-                                            <th className="p-5">Products (Size)</th>
-                                            <th className="p-5">Total</th>
-                                            <th className="p-5 text-center">Action</th>
+                                            <th className="p-4">Bill</th>
+                                            <th className="p-4">Customer</th>
+                                            <th className="p-4">Phone</th>
+                                            <th className="p-4">Address</th>
+                                            <th className="p-4">Products (Size)</th>
+                                            <th className="p-4">Total</th>
+                                            <th className="p-4 text-center">Action</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y text-sm bg-white">
-                                        {sales.map(s => (
-                                            <tr key={s.billNo}>
-                                                <td className="p-5 font-black text-indigo-600">#{s.billNo}</td>
-                                                <td className="p-5"><b>{s.customer.name}</b></td>
-                                                <td className="p-5">
+                                    <tbody className="divide-y bg-white">
+                                        {sales.length > 0 ? sales.map(s => (
+                                            <tr key={s.billNo} className="hover:bg-slate-50">
+                                                <td className="p-4 font-black text-indigo-600">#{s.billNo}</td>
+                                                <td className="p-4 font-bold">{s.customer.name}</td>
+                                                <td className="p-4">{s.customer.phone || 'N/A'}</td>
+                                                <td className="p-4 text-slate-500 italic max-w-[150px] truncate">{s.customer.address || 'N/A'}</td>
+                                                <td className="p-4">
                                                     <div className="flex flex-wrap gap-1">
-                                                        {s.items.map((item, idx) => (
-                                                            <span key={idx} className="bg-slate-100 text-slate-700 text-[10px] px-2 py-1 rounded-md font-semibold border border-slate-200">
-                                                                {item.name} ({item.size}) x{item.sellQty}
+                                                        {s.items.map((it, idx) => (
+                                                            <span key={idx} className="bg-slate-100 px-1.5 py-0.5 rounded border text-[9px] font-bold">
+                                                                {it.name} ({it.size}) x{it.sellQty}
                                                             </span>
                                                         ))}
                                                     </div>
                                                 </td>
-                                                <td className="p-5 font-black text-emerald-600">₹{s.total}</td>
-                                                <td className="p-5 text-center"><button onClick={()=> handleDeleteBill(s.billNo)} className="w-8 h-8 rounded bg-red-50 text-red-500"><i className="fas fa-trash"></i></button></td>
+                                                <td className="p-4 font-black text-emerald-600 text-sm">₹{s.total}</td>
+                                                <td className="p-4 text-center">
+                                                    <button onClick={()=>{
+                                                        requestAuth("Delete Bill", () => {
+                                                            const updated = sales.filter(sl => sl.billNo !== s.billNo);
+                                                            setSales(updated); syncToStorage(inventory, updated, billNo, permStats);
+                                                        });
+                                                    }} className="w-8 h-8 rounded bg-red-50 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fas fa-trash"></i></button>
+                                                </td>
                                             </tr>
-                                        ))}
+                                        )) : (
+                                            <tr><td colSpan="7" className="p-10 text-center text-slate-400 font-bold">No recent bills found</td></tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
                         )}
 
                         {view === 'reports' && (
-                            <div className="space-y-8">
-                                <div className="flex justify-between items-center">
-                                    <h3 className="font-black text-slate-700">Analytics</h3>
-                                    <button onClick={handleResetReports} className="px-4 py-2 bg-orange-50 text-orange-600 rounded-xl text-xs font-bold hover:bg-orange-600 hover:text-white transition-all"><i className="fas fa-sync-alt mr-2"></i> RESET STATS & BILL NO</button>
-                                </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                                    <StatCard label="Today Sales" value={`₹${permStats.dailyRevenue}`} icon="fa-cash-register" color="text-blue-600" />
-                                    <StatCard label="Today Profit" value={`₹${permStats.dailyProfit}`} icon="fa-rocket" color="text-emerald-600" />
-                                    <StatCard label="Month Revenue" value={`₹${permStats.monthlyRevenue}`} icon="fa-calendar-check" color="text-indigo-600" />
-                                    <StatCard label="Month Profit" value={`₹${permStats.monthlyProfit}`} icon="fa-coins" color="text-purple-600" />
-                                </div>
-                                <button onClick={exportData} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold">EXPORT TO CSV</button>
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                <StatCard label="Today Rev" value={`₹${permStats.dailyRevenue}`} icon="fa-cash-register" color="text-blue-600" />
+                                <StatCard label="Today Prof" value={`₹${permStats.dailyProfit}`} icon="fa-rocket" color="text-emerald-600" />
+                                <StatCard label="Month Rev" value={`₹${permStats.monthlyRevenue}`} icon="fa-calendar" color="text-indigo-600" />
+                                <StatCard label="Month Prof" value={`₹${permStats.monthlyProfit}`} icon="fa-coins" color="text-purple-600" />
                             </div>
                         )}
                     </main>
@@ -438,10 +415,10 @@
         );
 
         const StatCard = ({ label, value, icon, color }) => (
-            <div className="glass-card p-6 border-b-4 hover:border-indigo-500 transition-all">
-                <div className="flex items-center gap-5">
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border ${color}`}><i className={`fas ${icon} text-2xl`}></i></div>
-                    <div><p className="text-[11px] font-extrabold text-slate-400 uppercase">{label}</p><h4 className="text-2xl font-black">{value}</h4></div>
+            <div className="glass-card p-6 border-b-4 hover:border-indigo-500">
+                <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${color}`}><i className={`fas ${icon}`}></i></div>
+                    <div><p className="text-[10px] font-bold text-slate-400 uppercase">{label}</p><h4 className="text-lg font-black">{value}</h4></div>
                 </div>
             </div>
         );
@@ -451,5 +428,3 @@
     </script>
 </body>
 </html>
-
-
