@@ -37,16 +37,26 @@
         
         table { border-collapse: separate; border-spacing: 0 8px; }
         th, td { border: none !important; }
+        
+        /* Advanced Chat UI */
+        .chat-container { scroll-behavior: smooth; }
+        .chat-bubble { max-width: 85%; padding: 14px 18px; border-radius: 20px; font-size: 14px; line-height: 1.6; margin-bottom: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        .chat-user { background: #f1f5f9; color: #334155; border-bottom-right-radius: 4px; margin-left: auto; border: 1px solid #e2e8f0; font-weight: 600; }
+        .chat-ai { background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); color: white; border-bottom-left-radius: 4px; margin-right: auto; }
+        .ai-avatar { width: 35px; height: 35px; border-radius: 50%; background: white; color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 18px; margin-right: 10px; flex-shrink: 0; }
+        .quick-chip { font-size: 11px; padding: 6px 12px; border-radius: 20px; border: 1px solid #cbd5e1; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+        .quick-chip:hover { background: var(--primary); color: white; border-color: var(--primary); }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
         const App = () => {
             const STORAGE_KEY = "fancy_looks_erp_data";
+            const LOGS_KEY = "fancy_looks_erp_logs";
             const ADMIN_PASSWORD = "Fancy2003";
 
             const [inventory, setInventory] = useState([]);
@@ -55,15 +65,21 @@
             const [permStats, setPermStats] = useState({
                 dailyRevenue: 0, monthlyRevenue: 0, dailyProfit: 0, monthlyProfit: 0, lastDate: new Date().toLocaleDateString()
             });
+            const [auditLogs, setAuditLogs] = useState([]); 
 
             const [view, setView] = useState('billing');
             const [cart, setCart] = useState([]);
             const [isInvUnlocked, setIsInvUnlocked] = useState(false);
             const [isSidebarOpen, setSidebarOpen] = useState(false);
             const [searchQuery, setSearchQuery] = useState("");
+            const [localStockSearch, setLocalStockSearch] = useState("");
             const [customer, setCustomer] = useState({ name: '', phone: '', address: '', date: new Date().toISOString().split('T')[0] });
             const [passModal, setPassModal] = useState({ show: false, action: null, title: "" });
             const [passInput, setPassInput] = useState("");
+            
+            const [aiChat, setAiChat] = useState([{ q: null, a: "Namaskar Boss! Ami Sumit, apnar Smart Website Manager 🤖. Apnar business ar A-to-Z sob amar nokhodorpone ache! Customer details, stock alert, top sales, ba revenue jeta khushi jiges korun, ami fun ar sathe answer debo! Ekbar ask korei dekhun!" }]);
+            const [aiInput, setAiInput] = useState("");
+            const chatEndRef = useRef(null);
 
             useEffect(() => {
                 const savedData = localStorage.getItem(STORAGE_KEY);
@@ -74,10 +90,28 @@
                     setBillNo(data.billNo || 1);
                     setPermStats(data.permStats || permStats);
                 }
+                const savedLogs = localStorage.getItem(LOGS_KEY);
+                if (savedLogs) {
+                    setAuditLogs(JSON.parse(savedLogs));
+                }
             }, []);
+
+            useEffect(() => {
+                if (view === 'ai-brain' && chatEndRef.current) {
+                    chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+                }
+            }, [aiChat, view]);
 
             const syncToStorage = (newInv, newSales, newBillNo, newStats) => {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify({ inventory: newInv, sales: newSales, billNo: newBillNo, permStats: newStats }));
+            };
+
+            const addAuditLog = (action, details) => {
+                setAuditLogs(prev => {
+                    const newLogs = [{ date: new Date().toLocaleDateString(), isoDate: new Date().toISOString().split('T')[0], time: new Date().toLocaleTimeString(), action, details }, ...prev];
+                    localStorage.setItem(LOGS_KEY, JSON.stringify(newLogs));
+                    return newLogs;
+                });
             };
 
             const requestAuth = (title, successAction) => {
@@ -104,13 +138,38 @@
                 return { totalStockCount, grouped };
             }, [inventory]);
 
+            const sizeSummary = useMemo(() => {
+                const sizes = {};
+                inventory.forEach(item => {
+                    const s = item.size.trim().toUpperCase();
+                    if (!sizes[s]) sizes[s] = 0;
+                    sizes[s] += item.qty;
+                });
+                return sizes;
+            }, [inventory]);
+
+            const monthlyHistoryData = useMemo(() => {
+                const history = {};
+                sales.forEach(s => {
+                    const month = s.date.substring(0, 7);
+                    if (!history[month]) history[month] = { rev: 0, profit: 0, count: 0 };
+                    history[month].rev += s.total;
+                    const profit = s.items.reduce((p, i) => p + ((i.price - (i.purchasePrice || 0)) * i.sellQty), 0);
+                    history[month].profit += profit;
+                    history[month].count += 1;
+                });
+                return Object.entries(history).map(([m, data]) => ({ month: m, ...data })).sort((a,b) => b.month.localeCompare(a.month));
+            }, [sales]);
+
             const refillStock = (id) => {
                 const amount = prompt("How many units to add?");
                 const qtyToAdd = parseInt(amount);
                 if (isNaN(qtyToAdd) || qtyToAdd <= 0) return alert("Invalid amount!");
+                const itemToUpdate = inventory.find(i => i.id === id);
                 const updatedInv = inventory.map(item => item.id === id ? { ...item, qty: item.qty + qtyToAdd } : item);
                 setInventory(updatedInv);
                 syncToStorage(updatedInv, sales, billNo, permStats);
+                addAuditLog("refill", { id, name: itemToUpdate.name, qty: qtyToAdd }); 
             };
 
             const deductStock = (id) => {
@@ -122,6 +181,17 @@
                 const updatedInv = inventory.map(item => item.id === id ? { ...item, qty: item.qty - qtyToRemove } : item);
                 setInventory(updatedInv);
                 syncToStorage(updatedInv, sales, billNo, permStats);
+                addAuditLog("deduct", { id, name: itemToUpdate.name, qty: qtyToRemove }); 
+            };
+
+            const editStockName = (id, oldName) => {
+                const newName = prompt("Enter new name for stock:", oldName);
+                if (newName && newName.trim() !== "") {
+                    const updated = inventory.map(i => i.id === id ? { ...i, name: newName.trim() } : i);
+                    setInventory(updated);
+                    syncToStorage(updated, sales, billNo, permStats);
+                    addAuditLog("edit_name", { id, oldName, newName });
+                }
             };
 
             const handleResetInventory = () => {
@@ -144,6 +214,11 @@
                 } else {
                    setCart([...cart, { ...product, sellQty: qty, subtotal: product.price * qty }]);
                 }
+            };
+
+            const removeFromCart = (id) => {
+                const updatedCart = cart.filter(c => c.id !== id);
+                setCart(updatedCart);
             };
 
             const finalizeBill = (method) => {
@@ -174,14 +249,161 @@
                 alert("Sale Completed!");
             };
 
+            const resetAllData = () => {
+                requestAuth("Reset All Analytics Data", () => {
+                    if(confirm("Are you sure you want to reset ALL revenue and profit data?")) {
+                        const resetStats = { dailyRevenue: 0, monthlyRevenue: 0, dailyProfit: 0, monthlyProfit: 0, lastDate: new Date().toLocaleDateString() };
+                        setPermStats(resetStats);
+                        syncToStorage(inventory, sales, billNo, resetStats);
+                    }
+                });
+            };
+
+            const downloadMonthlyData = () => {
+                if (monthlyHistoryData.length === 0) return alert("No monthly data available to download.");
+                let csvContent = "data:text/csv;charset=utf-8,Month,Total Bills,Total Revenue,Total Profit\n";
+                monthlyHistoryData.forEach(row => {
+                    csvContent += `${row.month},${row.count},${row.rev},${row.profit}\n`;
+                });
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "monthly_report.csv");
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            const deleteMonthData = (monthStr) => {
+                requestAuth(`Delete Data for ${monthStr}`, () => {
+                    const updatedSales = sales.filter(s => s.date.substring(0, 7) !== monthStr);
+                    setSales(updatedSales);
+                    syncToStorage(inventory, updatedSales, billNo, permStats);
+                });
+            };
+
+            // ---- ADVANCED AI BRAIN LOGIC (SUMIT) ----
+            const processSumitAI = (qStr) => {
+                const q = qStr.toLowerCase();
+                const todayISO = new Date().toISOString().split('T')[0];
+                const todayLocal = new Date().toLocaleDateString();
+                const dateMatch = q.match(/\d{4}-\d{2}-\d{2}/);
+                const isToday = q.includes('aj') || q.includes('today') || q.includes('ajke');
+                const targetDate = dateMatch ? dateMatch[0] : (isToday ? todayISO : null);
+
+                const greetings = ["Boss! ", "Aha boss! ", "Sir, ", "Sumit bolchi, sunun! ", "Ekdom! "];
+                const g = greetings[Math.floor(Math.random() * greetings.length)];
+
+                // 1. OOS / Alert Stock Check (kom ache / add korte hobe / nai)
+                if(q.includes('add korte') || q.includes('nei') || q.includes('nai') || q.includes('stock out') || q.includes('kom ache') || q.includes('ki ki stock add')) {
+                    const lowStock = inventory.filter(i => i.qty <= 1);
+                    if(lowStock.length > 0) {
+                        return g + `Alert! Apnar ${lowStock.length} ta item ar stock sesh ba ekei bare kom ache (Red Pulse hocche 🚨). Ekhuni order korun: ${lowStock.map(i => `${i.name} (Size: ${i.size})`).join(", ")}. Baki sob thik ache boss!`;
+                    }
+                    return g + "Kono chaap nei boss! Sob stock ekhon full ache, konotai 1 er niche nei. Relax korun 😎.";
+                }
+
+                // 2. Best / Top Selling Items
+                if(q.includes('besi sale') || q.includes('top') || q.includes('best') || q.includes('bhalo sale')) {
+                    const itemSales = {};
+                    sales.forEach(s => s.items.forEach(i => {
+                        const key = `${i.name} (${i.size})`;
+                        itemSales[key] = (itemSales[key] || 0) + i.sellQty;
+                    }));
+                    const sorted = Object.entries(itemSales).sort((a,b) => b[1] - a[1]);
+                    if(sorted.length === 0) return g + "Ekhono kono sale hoi ni boss, sale hole pakka best item bole debo!";
+                    return g + `Apnar sob theke besi sale hoche: 1. ${sorted[0][0]} (${sorted[0][1]} ta), 2. ${sorted[1]?.[0]||'N/A'} (${sorted[1]?.[1]||0} ta). Ekdom fatiye sale hocche 🔥!`;
+                }
+
+                // 3. Worst / Least Selling Items
+                if(q.includes('kom sale') || q.includes('least') || q.includes('kharap sale')) {
+                    const itemSales = {};
+                    inventory.forEach(i => itemSales[`${i.name} (${i.size})`] = 0); // initialize all
+                    sales.forEach(s => s.items.forEach(i => {
+                        const key = `${i.name} (${i.size})`;
+                        if(itemSales[key] !== undefined) itemSales[key] += i.sellQty;
+                    }));
+                    const sorted = Object.entries(itemSales).sort((a,b) => a[1] - b[1]).filter(i => i[1] === 0);
+                    if(sorted.length > 0) return g + `Boss, ai item gulo ekhono aktao sale hoy ni: ${sorted.map(s=>s[0]).slice(0, 5).join(", ")}. Eto bhalo product customer k dekhate hobe!`;
+                    return g + "Sob item e kichu na kichu sale hoyeche. Kono dead stock nei!";
+                }
+
+                // 4. Customer Details Scan (Name, Phone, Address)
+                if(q.includes('customer') || q.includes('address') || q.includes('phone') || q.includes('number') || q.includes('kineche')) {
+                    // Try to extract name roughly
+                    const possibleNames = q.split(" ");
+                    let found = [];
+                    possibleNames.forEach(word => {
+                        if(word.length > 3 && !['kineche', 'address', 'customer', 'phone'].includes(word)){
+                            found = [...found, ...sales.filter(s => s.customer.name.toLowerCase().includes(word) || s.customer.phone.includes(word))];
+                        }
+                    });
+                    
+                    if(found.length > 0) {
+                        const c = found[0];
+                        return g + `Haa! Customer pelam. Name: ${c.customer.name}, Phone: ${c.customer.phone||'N/A'}, Address: ${c.customer.address||'N/A'}. Tara ${c.date} e total ₹${c.total} ar shopping korechilo. Items kinechilo: ${c.items.map(i=>`${i.name}`).join(", ")}.`;
+                    }
+                    if(q.includes('koto customer')) return g + `Amader total system a ekhon ${sales.length} jon unique bill/customer record ache!`;
+                    
+                    return g + "Ami customer scan korlam kintu ai nam/number theke kichu pelam na. Nam ba number thik kore likhun, ami khuje debo!";
+                }
+
+                // 5. Total Stock / What's Available / Sizes
+                if(q.includes('total stock') || q.includes('available') || q.includes('ki ki stock') || q.includes('koto size') || q.includes('size available')) {
+                    let sz = Object.entries(sizeSummary).map(([s, q]) => `Size ${s}: ${q} ta`).join(", ");
+                    return g + `Amader system a ekhon total ${stockSummary.totalStockCount} ta product ready ache! Size onujayi details: ${sz}. Kono customer asle directly sell korte paren!`;
+                }
+
+                // 6. Date Specific Queries (Bills, Rev, Profit, Items added)
+                if (targetDate) {
+                    const isLookingAtToday = isToday || targetDate === todayISO;
+                    const targetSales = sales.filter(s => s.date === targetDate);
+                    const targetLogs = auditLogs.filter(l => (isLookingAtToday && l.date === todayLocal) || l.isoDate === targetDate || l.date === targetDate);
+                    
+                    let addedQty = 0;
+                    targetLogs.forEach(l => { if(l.action === 'refill' || l.action === 'add_new') addedQty += (l.details.qty || 0); });
+                    
+                    let dayRev = targetSales.reduce((acc, s) => acc + s.total, 0);
+                    let dayProf = targetSales.reduce((acc, s) => acc + s.items.reduce((p, i) => p + ((i.price - (i.purchasePrice||0)) * i.sellQty), 0), 0);
+
+                    if (isLookingAtToday && q.includes('profit')) return g + `Ajker (Live) total profit hocche: ₹${permStats.lastDate === todayLocal ? permStats.dailyProfit : 0} 🤑`;
+                    if (isLookingAtToday && (q.includes('rev') || q.includes('taka') || q.includes('sale'))) return g + `Ajker total revenue/sell holo: ₹${permStats.lastDate === todayLocal ? permStats.dailyRevenue : 0} 💸`;
+                    if (q.includes('profit')) return g + `${targetDate} tarikhe boss, amader total profit chilo: ₹${dayProf}`;
+                    if (q.includes('bill')) return g + `${targetDate} tarikhe total ${targetSales.length} ta bill ketechilam amra.`;
+                    if (q.includes('add') || q.includes('item') || q.includes('stock')) return g + `${targetDate} a amra stock e total ${addedQty} ta item add korechi (+ icon and new add miliye).`;
+                    
+                    return g + `${targetDate} ar full summary: Total Bill holo ${targetSales.length} ta. Total Revenue chilo ₹${isLookingAtToday ? permStats.dailyRevenue : dayRev}. Profit asche ₹${isLookingAtToday ? permStats.dailyProfit : dayProf}. And oi dine stock add hoyeche ${addedQty} ta. Sob hisab clear Boss! 😎`;
+                }
+
+                // Default Fallback
+                return "Boss! Ami Sumit. Apni amake jekono bhabe question korte paren. Example: 'aj koto profit holo?', 'total stock koto ache?', 'kon stock besi sale hoche?', 'ki ki stock add korte hobe?', ba 'Rohan name customer ki ki kineche?'. Ami ekhankar A to Z sab jani!";
+            };
+
+            const handleAiSubmit = (e) => {
+                e.preventDefault();
+                if (!aiInput.trim()) return;
+                
+                const response = processSumitAI(aiInput);
+                setAiChat(prev => [...prev, { q: aiInput, a: response }]);
+                setAiInput("");
+            };
+
+            const fillQuickAiQuery = (text) => {
+                setAiInput(text);
+                const response = processSumitAI(text);
+                setAiChat(prev => [...prev, { q: text, a: response }]);
+                setAiInput("");
+            }
+
             const filteredInventory = inventory.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+            const filteredStockTable = inventory.filter(item => item.name.toLowerCase().includes(localStockSearch.toLowerCase()));
 
             return (
                 <div className="min-h-screen flex">
                     {/* Password Modal */}
                     {passModal.show && (
                         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-                            <div className="bg-white rounded-[30px] p-8 w-full max-md shadow-2xl scale-in text-center border">
+                            <div className="bg-white rounded-[30px] p-8 w-full max-w-sm shadow-2xl scale-in text-center border">
                                 <h3 className="text-xl font-extrabold mb-4">{passModal.title}</h3>
                                 <input type="password" title="Pass" className="w-full p-4 bg-slate-50 border rounded-2xl mb-4 text-center font-bold" value={passInput} onChange={(e) => setPassInput(e.target.value)} />
                                 <div className="flex gap-4">
@@ -202,6 +424,7 @@
                             <NavItem active={view==='inventory'} icon="fa-boxes-stacked" label="Stock Manager" onClick={() => { requestAuth("Unlock Inventory", () => { setIsInvUnlocked(true); setView('inventory'); }); setSidebarOpen(false); }} />
                             <NavItem active={view==='all-bills'} icon="fa-file-invoice" label="Recent Bills" onClick={()=>{setView('all-bills'); setSidebarOpen(false);}} />
                             <NavItem active={view==='reports'} icon="fa-chart-pie" label="Analytics" onClick={()=>{setView('reports'); setSidebarOpen(false);}} />
+                            <NavItem active={view==='ai-brain'} icon="fa-brain" label="AI Brain (Sumit)" onClick={()=>{setView('ai-brain'); setSidebarOpen(false);}} />
                         </nav>
                     </aside>
 
@@ -209,10 +432,12 @@
                         <header className="flex justify-between items-center mb-8">
                             <button onClick={() => setSidebarOpen(true)} className="lg:hidden w-10 h-10 rounded-lg bg-white shadow flex items-center justify-center text-slate-600"><i className="fas fa-bars"></i></button>
                             <h2 className="text-2xl font-extrabold text-slate-800 capitalize">{view.replace('-', ' ')}</h2>
-                            <div className="relative w-64 hidden md:block">
-                                <i className="fas fa-search absolute left-4 top-4 text-slate-400"></i>
-                                <input placeholder="Search product..." className="w-full pl-12 pr-4 py-3 bg-white border rounded-2xl text-sm" onChange={e => setSearchQuery(e.target.value)} />
-                            </div>
+                            {view === 'billing' && (
+                                <div className="relative w-64 hidden md:block">
+                                    <i className="fas fa-search absolute left-4 top-4 text-slate-400"></i>
+                                    <input placeholder="Search product..." className="w-full pl-12 pr-4 py-3 bg-white border rounded-2xl text-sm" onChange={e => setSearchQuery(e.target.value)} />
+                                </div>
+                            )}
                         </header>
 
                         {view === 'billing' && (
@@ -251,8 +476,15 @@
                                         <div className="divide-y max-h-[30vh] overflow-y-auto mb-4">
                                             {cart.map((c, i) => (
                                                 <div key={i} className="py-2 flex justify-between text-xs items-center">
-                                                    <span className="font-medium">{c.name} ({c.size}) x{c.sellQty}</span>
-                                                    <span className="font-black text-indigo-600">₹{c.subtotal}</span>
+                                                    <div>
+                                                        <span className="font-medium">{c.name} ({c.size}) x{c.sellQty}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="font-black text-indigo-600">₹{c.subtotal}</span>
+                                                        <button onClick={() => removeFromCart(c.id)} className="text-red-400 hover:text-red-600 transition-colors">
+                                                            <i className="fas fa-times-circle text-sm"></i>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
@@ -273,7 +505,7 @@
                                         <h3 className="font-black">Stock Summary</h3>
                                         <span className="bg-indigo-600 text-white px-3 py-1 rounded-full text-xs font-bold">Total Units: {stockSummary.totalStockCount}</span>
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                                         {Object.entries(stockSummary.grouped).map(([name, data]) => (
                                             <div 
                                                 key={name} 
@@ -294,6 +526,17 @@
                                             </div>
                                         ))}
                                     </div>
+                                    
+                                    <div className="pt-4 border-t">
+                                        <h4 className="font-bold text-xs mb-3 text-slate-600">Total Stock Items By Size (All Categories):</h4>
+                                        <div className="flex flex-wrap gap-2">
+                                            {Object.entries(sizeSummary).map(([sz, q]) => (
+                                                <span key={sz} className="bg-slate-800 text-white px-3 py-1.5 rounded text-[10px] font-bold">
+                                                    Size {sz} : <span className="text-emerald-400">{q}</span> pcs
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="flex justify-between">
@@ -306,7 +549,9 @@
                                         e.preventDefault();
                                         const newItem = { id: Date.now(), name: e.target.pname.value, size: e.target.psize.value, qty: parseInt(e.target.pqty.value), purchasePrice: parseFloat(e.target.buyprice.value), price: parseFloat(e.target.sellprice.value) };
                                         const updatedInv = [...inventory, newItem]; setInventory(updatedInv);
-                                        syncToStorage(updatedInv, sales, billNo, permStats); e.target.reset();
+                                        syncToStorage(updatedInv, sales, billNo, permStats); 
+                                        addAuditLog("add_new", { name: newItem.name, qty: newItem.qty }); 
+                                        e.target.reset();
                                     }} className="grid grid-cols-2 md:grid-cols-5 gap-3">
                                         <input name="pname" required placeholder="Name" className="p-3 border rounded-xl text-xs" />
                                         <input name="psize" required placeholder="Size" className="p-3 border rounded-xl text-xs" />
@@ -317,27 +562,39 @@
                                     </form>
                                 </div>
 
-                                <div className="glass-card p-4 overflow-hidden">
-                                    <table className="w-full text-left text-xs">
-                                        <thead className="bg-slate-800 text-white">
-                                            <tr><th className="p-4 rounded-l-xl">Product</th><th className="p-4">Stock</th><th className="p-4 rounded-r-xl">Manage</th></tr>
-                                        </thead>
-                                        <tbody>
-                                            {inventory.map(item => (
-                                                <tr key={item.id} className={`bg-white rounded-xl transition-all ${item.qty <= 1 ? 'pulse-red bg-red-50' : 'pulse-green bg-emerald-50'}`}>
-                                                    <td className="p-4 font-bold rounded-l-xl">{item.name}<br/><span className="text-[10px] font-normal text-slate-500">{item.size}</span></td>
-                                                    <td className="p-4 font-black">₹{item.price} <span className={`ml-2 px-2 py-1 rounded text-white ${item.qty <= 1 ? 'bg-red-600' : 'bg-emerald-600'}`}>{item.qty} left</span></td>
-                                                    <td className="p-4 rounded-r-xl">
-                                                        <div className="flex gap-2">
-                                                            <button onClick={() => refillStock(item.id)} className="w-8 h-8 rounded bg-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"><i className="fas fa-plus"></i></button>
-                                                            <button onClick={() => deductStock(item.id)} className="w-8 h-8 rounded bg-orange-100 text-orange-600 hover:bg-orange-600 hover:text-white transition-all"><i className="fas fa-minus"></i></button>
-                                                            <button onClick={()=>{if(confirm('Delete?')){ const updated = inventory.filter(i=>i.id!==item.id); setInventory(updated); syncToStorage(updated, sales, billNo, permStats); }}} className="w-8 h-8 rounded bg-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"><i className="fas fa-trash"></i></button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                <div className="glass-card p-4">
+                                    <div className="mb-4 relative">
+                                        <i className="fas fa-search absolute left-4 top-3 text-slate-400"></i>
+                                        <input 
+                                            placeholder="Search stock by name to edit/manage..." 
+                                            value={localStockSearch}
+                                            onChange={(e) => setLocalStockSearch(e.target.value)}
+                                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border rounded-xl text-sm outline-none focus:border-indigo-500" 
+                                        />
+                                    </div>
+                                    <div className="overflow-hidden">
+                                        <table className="w-full text-left text-xs">
+                                            <thead className="bg-slate-800 text-white">
+                                                <tr><th className="p-4 rounded-l-xl">Product</th><th className="p-4">Stock</th><th className="p-4 rounded-r-xl">Manage</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                {filteredStockTable.map(item => (
+                                                    <tr key={item.id} className={`bg-white rounded-xl transition-all ${item.qty <= 1 ? 'pulse-red bg-red-50' : 'pulse-green bg-emerald-50'}`}>
+                                                        <td className="p-4 font-bold rounded-l-xl">{item.name}<br/><span className="text-[10px] font-normal text-slate-500">{item.size}</span></td>
+                                                        <td className="p-4 font-black">₹{item.price} <span className={`ml-2 px-2 py-1 rounded text-white ${item.qty <= 1 ? 'bg-red-600' : 'bg-emerald-600'}`}>{item.qty} left</span></td>
+                                                        <td className="p-4 rounded-r-xl">
+                                                            <div className="flex gap-2">
+                                                                <button onClick={() => refillStock(item.id)} className="w-8 h-8 rounded bg-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"><i className="fas fa-plus"></i></button>
+                                                                <button onClick={() => deductStock(item.id)} className="w-8 h-8 rounded bg-orange-100 text-orange-600 hover:bg-orange-600 hover:text-white transition-all"><i className="fas fa-minus"></i></button>
+                                                                <button onClick={() => editStockName(item.id, item.name)} className="w-8 h-8 rounded bg-blue-100 text-blue-600 hover:bg-blue-600 hover:text-white transition-all" title="Edit Name"><i className="fas fa-pencil-alt"></i></button>
+                                                                <button onClick={()=>{if(confirm('Delete?')){ const updated = inventory.filter(i=>i.id!==item.id); setInventory(updated); syncToStorage(updated, sales, billNo, permStats); }}} className="w-8 h-8 rounded bg-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"><i className="fas fa-trash"></i></button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -393,11 +650,94 @@
                         )}
 
                         {view === 'reports' && (
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                                <StatCard label="Today Rev" value={`₹${permStats.dailyRevenue}`} icon="fa-cash-register" color="text-blue-600" />
-                                <StatCard label="Today Prof" value={`₹${permStats.dailyProfit}`} icon="fa-rocket" color="text-emerald-600" />
-                                <StatCard label="Month Rev" value={`₹${permStats.monthlyRevenue}`} icon="fa-calendar" color="text-indigo-600" />
-                                <StatCard label="Month Prof" value={`₹${permStats.monthlyProfit}`} icon="fa-coins" color="text-purple-600" />
+                            <div className="space-y-6">
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                    <StatCard label="Today Rev" value={`₹${permStats.dailyRevenue}`} icon="fa-cash-register" color="text-blue-600" />
+                                    <StatCard label="Today Prof" value={`₹${permStats.dailyProfit}`} icon="fa-rocket" color="text-emerald-600" />
+                                    <StatCard label="Month Rev" value={`₹${permStats.monthlyRevenue}`} icon="fa-calendar" color="text-indigo-600" />
+                                    <StatCard label="Month Prof" value={`₹${permStats.monthlyProfit}`} icon="fa-coins" color="text-purple-600" />
+                                </div>
+
+                                <div className="flex gap-4 mb-4">
+                                    <button onClick={resetAllData} className="px-6 py-3 bg-red-50 text-red-600 font-bold rounded-xl text-sm hover:bg-red-500 hover:text-white transition-all"><i className="fas fa-power-off mr-2"></i> Reset Today & Month Data</button>
+                                    <button onClick={downloadMonthlyData} className="px-6 py-3 bg-indigo-50 text-indigo-600 font-bold rounded-xl text-sm hover:bg-indigo-500 hover:text-white transition-all"><i className="fas fa-download mr-2"></i> Download Monthly Report</button>
+                                </div>
+
+                                <div className="glass-card overflow-hidden">
+                                    <div className="p-4 border-b font-black text-slate-700">Monthly History Data</div>
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] font-black">
+                                            <tr>
+                                                <th className="p-4">Month</th>
+                                                <th className="p-4">Total Bills</th>
+                                                <th className="p-4">Revenue</th>
+                                                <th className="p-4">Profit</th>
+                                                <th className="p-4 text-center">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                            {monthlyHistoryData.length > 0 ? monthlyHistoryData.map((data, idx) => (
+                                                <tr key={idx} className="hover:bg-slate-50">
+                                                    <td className="p-4 font-bold">{data.month}</td>
+                                                    <td className="p-4">{data.count}</td>
+                                                    <td className="p-4 font-black text-blue-600">₹{data.rev}</td>
+                                                    <td className="p-4 font-black text-emerald-600">₹{data.profit}</td>
+                                                    <td className="p-4 text-center">
+                                                        <button onClick={() => deleteMonthData(data.month)} className="w-8 h-8 rounded bg-red-50 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fas fa-trash"></i></button>
+                                                    </td>
+                                                </tr>
+                                            )) : <tr><td colSpan="5" className="p-6 text-center text-slate-400">No monthly history yet</td></tr>}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* --- Advanced AI Brain View --- */}
+                        {view === 'ai-brain' && (
+                            <div className="glass-card flex flex-col h-[80vh] overflow-hidden bg-white shadow-2xl border-0 ring-1 ring-slate-100">
+                                <div className="p-5 border-b bg-slate-50/80 backdrop-blur flex items-center gap-4 z-10 shadow-sm">
+                                    <div className="w-12 h-12 rounded-full ai-gradient flex items-center justify-center text-white text-xl shadow-lg ring-4 ring-white"><i className="fas fa-robot"></i></div>
+                                    <div>
+                                        <h3 className="font-extrabold text-slate-800 text-lg">Sumit AI</h3>
+                                        <p className="text-[11px] text-emerald-600 font-bold flex items-center gap-1"><i className="fas fa-circle text-[8px] pulse-green"></i> Always Active & Scanning System</p>
+                                    </div>
+                                </div>
+                                
+                                <div className="px-5 py-3 border-b bg-white flex gap-2 overflow-x-auto whitespace-nowrap hide-scrollbar">
+                                    <span className="text-xs font-bold text-slate-400 py-1"><i className="fas fa-bolt text-amber-400"></i> Quick Ask:</span>
+                                    <button onClick={()=>fillQuickAiQuery("Aj koto profit holo?")} className="quick-chip">Today Profit?</button>
+                                    <button onClick={()=>fillQuickAiQuery("Ki ki stock add korte hobe?")} className="quick-chip">Alert Stock?</button>
+                                    <button onClick={()=>fillQuickAiQuery("Kon stock besi sale hocche?")} className="quick-chip">Top Selling Items</button>
+                                    <button onClick={()=>fillQuickAiQuery("Total stock koto ache?")} className="quick-chip">Total Stock Status</button>
+                                </div>
+
+                                <div className="flex-1 p-6 overflow-y-auto bg-slate-50/50 flex flex-col chat-container">
+                                    {aiChat.map((chat, i) => (
+                                        <React.Fragment key={i}>
+                                            {chat.q && <div className="chat-bubble chat-user scale-in">{chat.q}</div>}
+                                            {chat.a && (
+                                                <div className="flex items-start scale-in">
+                                                    <div className="ai-avatar shadow-md"><i className="fas fa-robot text-sm"></i></div>
+                                                    <div className="chat-bubble chat-ai shadow-lg shadow-indigo-100">{chat.a}</div>
+                                                </div>
+                                            )}
+                                        </React.Fragment>
+                                    ))}
+                                    <div ref={chatEndRef} />
+                                </div>
+                                
+                                <div className="p-4 border-t bg-white shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+                                    <form onSubmit={handleAiSubmit} className="flex gap-3">
+                                        <input 
+                                            value={aiInput} 
+                                            onChange={(e) => setAiInput(e.target.value)} 
+                                            placeholder="Ask Sumit anything... (e.g. 'Customer Rakesh ki kineche?')" 
+                                            className="flex-1 p-4 bg-slate-100 border-0 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-400 font-medium"
+                                        />
+                                        <button type="submit" className="px-6 py-4 ai-gradient text-white font-black rounded-2xl shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all"><i className="fas fa-paper-plane text-lg"></i></button>
+                                    </form>
+                                </div>
                             </div>
                         )}
                     </main>
